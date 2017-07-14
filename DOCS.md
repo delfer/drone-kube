@@ -56,6 +56,24 @@ export KUBE_CA=$(cat ca.pem | base64)
 __KUBE_SERVER__ This is the server url for your kubernetes cluster.  e.g: https://10.99.2.1:6443
 
 
+## How to get token
+1. After deployment inspect you pod for name of (k8s) secret with **token** and **ca.crt**
+```bash
+kubectl describe po/[ your pod name ] | grep SecretName | grep token
+```
+(When you use **default service account**)
+
+2. Get data from you (k8s) secret
+```bash
+kubectl get secret [ your default secret name ] -o yaml | egrep 'ca.crt:|token:'
+```
+3. Copy-paste contents of ca.crt into your drone's **kube_ca** secret
+4. Decode base64 encoded token
+```bash
+echo [ your k8s base64 encoded token ] | base64 -d && echo
+```
+5. Copy-paste decoded token into your drone's **kube_token** secret
+
 ## Template Reference
 
 You can substitute the following values between ```{{ }}``` in your deployment template 
@@ -127,4 +145,39 @@ urlencode
 
 since
 : returns a duration string between now and the given timestamp. Example `{{since build.started}}`
-	
+
+## Example deployment.yaml
+To be sure k8s update you image even if it have the same repo and tag, but only with new commits.
+Just add commit hash as any env variable
+```yaml
+kind: Deployment
+metadata:
+  name: my-app
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: my-app
+    spec:
+      containers:
+      - image: my-repo/my-app:dev
+        imagePullPolicy: Always
+        name: my-app
+        env:
+        - name: FOR_GODS_SAKE_PLEASE_REDEPLOY
+          value: '{{ build.commit }}'
+      restartPolicy: Always
+```
+Or you can use **build.number** instead of **build.commit** to redeploy on every build. ```imagePullPolicy: Always``` is mandatory.
+
+According .drone.yaml
+```yaml
+pipeline:
+  deploy:
+    image: vallard/drone-kube
+    secrets: [ kube_server, kube_token, kube_ca ]
+    template: deployment.yaml
+```
